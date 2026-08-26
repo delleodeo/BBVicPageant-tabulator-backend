@@ -3,6 +3,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { env } from './config/env.js';
+import { uploadRoot } from './config/paths.js';
 import { auditRoutes } from './routes/auditRoutes.js';
 import { authRoutes } from './routes/authRoutes.js';
 import { contestantRoutes } from './routes/contestantRoutes.js';
@@ -14,15 +15,17 @@ import { pageantRoutes } from './routes/pageantRoutes.js';
 import { adminRoundOneRoutes, judgeRoundOneRoutes } from './routes/roundOneRoutes.js';
 import { specialAwardRoutes } from './routes/specialAwardRoutes.js';
 import { systemRoutes } from './routes/systemRoutes.js';
+import { uploadRoutes } from './routes/uploadRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 export function createApp() {
   const app = express();
 
-  app.use(helmet());
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cors({ origin: env.clientUrl, credentials: true }));
   app.use(express.json({ limit: '2mb' }));
   app.use(rateLimit({ windowMs: 15 * 60 * 100000, max: 100000 }));
+  app.use('/uploads', express.static(uploadRoot, { index: false, maxAge: '7d' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
   app.use('/api/auth', authRoutes);
@@ -40,10 +43,10 @@ export function createApp() {
   app.use('/api/admin/audit-logs', auditRoutes);
   app.use('/api/admin/exports', exportRoutes);
   app.use('/api/admin/system', systemRoutes);
+  app.use('/api/uploads', uploadRoutes);
 
   app.use(notFound);
   app.use(errorHandler);
 
   return app;
 }
-
