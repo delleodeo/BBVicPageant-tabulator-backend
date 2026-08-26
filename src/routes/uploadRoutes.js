@@ -58,8 +58,6 @@ uploadRoutes.post(
     }
 
     const pathUrl = `/uploads/contestants/${req.file.filename}`;
-    const absoluteUrl = `${req.protocol}://${req.get('host')}${pathUrl}`;
-
     res.status(201).json({
       file: {
         originalName: req.file.originalname,
@@ -68,7 +66,7 @@ uploadRoutes.post(
         mimeType: req.file.mimetype
       },
       path: pathUrl,
-      url: absoluteUrl
+      url: pathUrl
     });
   })
 );
