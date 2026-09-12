@@ -11,6 +11,10 @@ import { asyncHandler, HttpError } from '../utils/httpError.js';
 
 export const contestantRoutes = express.Router();
 
+function optionalAge(value) {
+  return value === undefined || value === null || String(value).trim() === '' ? null : Number(value);
+}
+
 contestantRoutes.use(authMiddleware);
 
 contestantRoutes.get(
@@ -37,7 +41,7 @@ contestantRoutes.post(
       photo: req.body.photo || '',
       hometown: req.body.hometown || '',
       advocacy: req.body.advocacy || '',
-      age: req.body.age ? Number(req.body.age) : undefined,
+      age: optionalAge(req.body.age),
       height: req.body.height || '',
       bio: req.body.bio || '',
       tagline: req.body.tagline || '',
@@ -67,7 +71,7 @@ contestantRoutes.post(
             photo: item.photo || '',
             hometown: item.hometown || '',
             advocacy: item.advocacy || '',
-            age: item.age ? Number(item.age) : undefined,
+            ...(item.age !== undefined ? { age: optionalAge(item.age) } : {}),
             height: item.height || '',
             bio: item.bio || '',
             status: item.status || 'ACTIVE'
@@ -112,7 +116,7 @@ contestantRoutes.put(
         photo: req.body.photo !== undefined ? req.body.photo : previous.photo,
         hometown: req.body.hometown !== undefined ? req.body.hometown : previous.hometown,
         advocacy: req.body.advocacy !== undefined ? req.body.advocacy : previous.advocacy,
-        age: req.body.age !== undefined ? (req.body.age ? Number(req.body.age) : null) : previous.age,
+        age: req.body.age !== undefined ? optionalAge(req.body.age) : previous.age,
         height: req.body.height !== undefined ? req.body.height : previous.height,
         bio: req.body.bio !== undefined ? req.body.bio : previous.bio,
         tagline: req.body.tagline !== undefined ? req.body.tagline : previous.tagline,
@@ -154,4 +158,3 @@ contestantRoutes.delete(
     res.json({ message: 'Contestant deleted.' });
   })
 );
-
