@@ -9,8 +9,8 @@ import { generateFinalists } from '../services/finalistService.js';
 import { getRound } from '../services/roundService.js';
 import { Pageant } from '../models/Pageant.js';
 import { emitToAdmins } from '../services/socketBus.js';
+import { getScoringCriteria } from '../services/criteriaService.js';
 import {
-  ROUND_ONE_CATEGORIES,
   calculateRoundOneRankings,
   validateRoundCompletion,
   validateScorePatch
@@ -20,19 +20,20 @@ import { asyncHandler, HttpError } from '../utils/httpError.js';
 export const judgeRoundOneRoutes = express.Router();
 export const adminRoundOneRoutes = express.Router();
 
-async function buildRoundOneResults() {
+async function buildRoundOneResults(configuredCategories) {
+  const categories = configuredCategories || (await getScoringCriteria()).roundOneCategories;
   const contestants = await Contestant.find().sort({ contestantNumber: 1 });
   const judges = await Judge.find({ status: 'active' }).sort({ judgeId: 1 });
   const scores = await RoundOneScore.find({ round: 'ROUND_1' });
-  const rankings = calculateRoundOneRankings(contestants, scores);
-  const completion = validateRoundCompletion(judges, contestants, scores);
+  const rankings = calculateRoundOneRankings(contestants, scores, categories);
+  const completion = validateRoundCompletion(judges, contestants, scores, categories);
 
   const judgeProgress = judges.map((judge) => {
     const completeCount = contestants.filter((contestant) => {
       const score = scores.find(
         (entry) => entry.judgeId === judge.judgeId && String(entry.contestantId) === String(contestant._id)
       );
-      return ROUND_ONE_CATEGORIES.every((category) => score?.[category.key] !== undefined && score?.[category.key] !== null);
+      return categories.every((category) => score?.[category.key] !== undefined && score?.[category.key] !== null);
     }).length;
 
     return {
@@ -47,6 +48,7 @@ async function buildRoundOneResults() {
   const completedScoreSheets = judgeProgress.reduce((sum, progress) => sum + progress.complete, 0);
 
   return {
+    categories,
     rankings,
     completion,
     judgeProgress,
@@ -69,7 +71,8 @@ judgeRoundOneRoutes.get(
     const round = await getRound('ROUND_1');
     const contestants = await Contestant.find().sort({ contestantNumber: 1 });
     const scores = await RoundOneScore.find({ judgeId: req.judge.judgeId, round: 'ROUND_1' });
-    res.json({ round, contestants, scores });
+    const { roundOneCategories: categories } = await getScoringCriteria();
+    res.json({ round, contestants, scores, categories });
   })
 );
 
@@ -84,7 +87,8 @@ judgeRoundOneRoutes.get(
       contestantId: contestant._id,
       round: 'ROUND_1'
     });
-    res.json({ round, contestant, score, categories: ROUND_ONE_CATEGORIES });
+    const { roundOneCategories: categories } = await getScoringCriteria();
+    res.json({ round, contestant, score, categories });
   })
 );
 
@@ -97,7 +101,8 @@ judgeRoundOneRoutes.post(
     const contestant = await Contestant.findById(req.body.contestantId);
     if (!contestant) throw new HttpError(404, 'Contestant not found.');
 
-    const patch = validateScorePatch(req.body, ROUND_ONE_CATEGORIES.map((category) => category.key));
+    const { roundOneCategories: categories } = await getScoringCriteria();
+    const patch = validateScorePatch(req.body, categories.map((category) => category.key));
     const previous = await RoundOneScore.findOne({
       judgeId: req.judge.judgeId,
       contestantId: contestant._id,
@@ -120,7 +125,7 @@ judgeRoundOneRoutes.post(
       newValue: score
     });
 
-    const results = await buildRoundOneResults();
+    const results = await buildRoundOneResults(categories);
     emitToAdmins(previous ? 'score:updated' : 'score:created', { round: 'ROUND_1', score });
     emitToAdmins('progress:updated', results);
     emitToAdmins('results:updated', results);
@@ -142,7 +147,8 @@ judgeRoundOneRoutes.put(
       throw new HttpError(403, 'You are not authorized to modify this score.');
     }
 
-    const patch = validateScorePatch(req.body, ROUND_ONE_CATEGORIES.map((category) => category.key));
+    const { roundOneCategories: categories } = await getScoringCriteria();
+    const patch = validateScorePatch(req.body, categories.map((category) => category.key));
     const score = await RoundOneScore.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true, runValidators: true });
 
     await logAudit({
@@ -155,7 +161,7 @@ judgeRoundOneRoutes.put(
       newValue: score
     });
 
-    const results = await buildRoundOneResults();
+    const results = await buildRoundOneResults(categories);
     emitToAdmins('score:updated', { round: 'ROUND_1', score });
     emitToAdmins('progress:updated', results);
     emitToAdmins('results:updated', results);
@@ -181,8 +187,9 @@ adminRoundOneRoutes.get(
     const contestant = await Contestant.findById(req.params.contestantId);
     if (!contestant) throw new HttpError(404, 'Contestant not found.');
     const scores = await RoundOneScore.find({ contestantId: contestant._id, round: 'ROUND_1' }).sort({ judgeId: 1 });
-    const [result] = calculateRoundOneRankings([contestant], scores);
-    res.json({ contestant, result, judgeScores: scores });
+    const { roundOneCategories: categories } = await getScoringCriteria();
+    const [result] = calculateRoundOneRankings([contestant], scores, categories);
+    res.json({ contestant, result, judgeScores: scores, categories });
   })
 );
 
@@ -207,7 +214,8 @@ adminRoundOneRoutes.post(
     const contestants = await Contestant.find().sort({ contestantNumber: 1 });
     const judges = await Judge.find({ status: 'active' }).sort({ judgeId: 1 });
     const scores = await RoundOneScore.find({ round: 'ROUND_1' });
-    const completion = validateRoundCompletion(judges, contestants, scores);
+    const { roundOneCategories: categories } = await getScoringCriteria();
+    const completion = validateRoundCompletion(judges, contestants, scores, categories);
 
     if (!completion.complete) {
       throw new HttpError(409, 'All required scores must be submitted before locking.', completion.missing);
@@ -222,8 +230,8 @@ adminRoundOneRoutes.post(
     await Pageant.findOneAndUpdate({}, { $set: { roundOneLocked: true } });
 
     await logAudit({ user: req.user, action: 'ROUND_1_LOCKED', round: 'ROUND_1' });
-    const finalists = await generateFinalists({ user: req.user });
-    const results = await buildRoundOneResults();
+    const finalists = await generateFinalists({ user: req.user, categories });
+    const results = await buildRoundOneResults(categories);
 
     emitToAdmins('round:locked', { round: 'ROUND_1' });
     emitToAdmins('results:updated', results);
@@ -257,4 +265,3 @@ adminRoundOneRoutes.post(
 );
 
 export { buildRoundOneResults };
-

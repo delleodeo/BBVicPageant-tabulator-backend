@@ -38,33 +38,42 @@ function sendExcel(res, filename, rows) {
   res.send(html);
 }
 
-function roundOneRows(rankings) {
-  return rankings.map((result) => ({
-    Rank: result.rank,
-    'Contestant Number': result.contestant.contestantNumber,
-    Name: result.contestant.name,
-    Hometown: result.contestant.hometown || '',
-    'Production Outfit': result.categories.find((category) => category.key === 'productionOutfit')?.weighted ?? '',
-    Swimsuit: result.categories.find((category) => category.key === 'swimsuit')?.weighted ?? '',
-    'Festival Costume': result.categories.find((category) => category.key === 'festivalCostume')?.weighted ?? '',
-    EveningGown: result.categories.find((category) => category.key === 'eveningGown')?.weighted ?? '',
-    'Beauty & Intelligence': result.categories.find((category) => category.key === 'beautyIntelligence')?.weighted ?? '',
-    Total: result.total ?? '',
-    Status: result.contestant.status
-  }));
+function roundOneRows(rankings, categories) {
+  return rankings.map((result) => {
+    const row = {
+      Rank: result.rank,
+      'Contestant Number': result.contestant.contestantNumber,
+      Name: result.contestant.name,
+      Hometown: result.contestant.hometown || ''
+    };
+    for (const category of categories) {
+      row[`${category.label} (${category.weight}%)`] = result.categories.find(
+        (entry) => entry.key === category.key
+      )?.weighted ?? '';
+    }
+    row.Total = result.total ?? '';
+    row.Status = result.contestant.status;
+    return row;
+  });
 }
 
-function finalRows(rankings) {
-  return rankings.map((result) => ({
-    Rank: result.rank,
-    'Contestant Number': result.contestant.contestantNumber,
-    Name: result.contestant.name,
-    Hometown: result.contestant.hometown || '',
-    'Round 1': result.roundOneTotal ?? '',
-    Intelligence: result.intelligenceAverage ?? '',
-    Beauty: result.beautyAverage ?? '',
-    'Final Score': result.finalScore ?? ''
-  }));
+function finalRows(rankings, categories) {
+  return rankings.map((result) => {
+    const row = {
+      Rank: result.rank,
+      'Contestant Number': result.contestant.contestantNumber,
+      Name: result.contestant.name,
+      Hometown: result.contestant.hometown || '',
+      'Round 1 (20%)': result.roundOneTotal ?? ''
+    };
+    for (const category of categories) {
+      row[`${category.label} (${category.weight}%)`] = result.categories?.find(
+        (entry) => entry.key === category.key
+      )?.score100 ?? '';
+    }
+    row['Final Score'] = result.finalScore ?? '';
+    return row;
+  });
 }
 
 exportRoutes.get(
@@ -72,8 +81,8 @@ exportRoutes.get(
   asyncHandler(async (req, res) => {
     const results = await buildRoundOneResults();
     const format = String(req.query.format || 'csv').toLowerCase();
-    if (format === 'csv') return sendCsv(res, 'round-one-results.csv', roundOneRows(results.rankings));
-    if (format === 'xls' || format === 'excel') return sendExcel(res, 'round-one-results.xls', roundOneRows(results.rankings));
+    if (format === 'csv') return sendCsv(res, 'round-one-results.csv', roundOneRows(results.rankings, results.categories));
+    if (format === 'xls' || format === 'excel') return sendExcel(res, 'round-one-results.xls', roundOneRows(results.rankings, results.categories));
     if (format === 'pdf') {
       return generateCertifiedPdf({
         res,
@@ -81,7 +90,8 @@ exportRoutes.get(
         title: 'OFFICIAL ROUND 1 TABULATION RESULTS',
         roundName: 'ROUND 1',
         rankings: results.rankings,
-        isFinal: false
+        isFinal: false,
+        categories: results.categories
       });
     }
     throw new HttpError(400, 'Unsupported export format.');
@@ -93,8 +103,8 @@ exportRoutes.get(
   asyncHandler(async (req, res) => {
     const results = await buildFinalResults();
     const format = String(req.query.format || 'csv').toLowerCase();
-    if (format === 'csv') return sendCsv(res, 'final-results.csv', finalRows(results.rankings));
-    if (format === 'xls' || format === 'excel') return sendExcel(res, 'final-results.xls', finalRows(results.rankings));
+    if (format === 'csv') return sendCsv(res, 'final-results.csv', finalRows(results.rankings, results.categories));
+    if (format === 'xls' || format === 'excel') return sendExcel(res, 'final-results.xls', finalRows(results.rankings, results.categories));
     if (format === 'pdf') {
       return generateCertifiedPdf({
         res,
@@ -102,10 +112,10 @@ exportRoutes.get(
         title: 'OFFICIAL FINAL ROUND TABULATION RESULTS',
         roundName: 'FINAL ROUND',
         rankings: results.rankings,
-        isFinal: true
+        isFinal: true,
+        categories: results.categories
       });
     }
     throw new HttpError(400, 'Unsupported export format.');
   })
 );
-

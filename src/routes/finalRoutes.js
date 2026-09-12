@@ -11,8 +11,8 @@ import { getFinalists, validateFinalistRoster } from '../services/finalistServic
 import { getRound } from '../services/roundService.js';
 import { emitToAdmins } from '../services/socketBus.js';
 import { Pageant } from '../models/Pageant.js';
+import { getScoringCriteria } from '../services/criteriaService.js';
 import {
-  FINAL_CATEGORIES,
   calculateFinalRankings,
   calculateRoundOneRankings,
   scoreDocumentComplete,
@@ -24,14 +24,16 @@ export const judgeFinalRoutes = express.Router();
 export const adminFinalRoutes = express.Router();
 export const finalistRoutes = express.Router();
 
-async function buildFinalResults() {
+async function buildFinalResults(configuredCriteria) {
+  const criteria = configuredCriteria || await getScoringCriteria();
+  const { roundOneCategories, finalCategories: categories } = criteria;
   const finalists = await getFinalists();
   const contestants = await Contestant.find().sort({ contestantNumber: 1 });
   const roundOneScores = await RoundOneScore.find({ round: 'ROUND_1' });
   const finalScores = await FinalRoundScore.find({ round: 'FINAL' });
   const activeJudges = await Judge.find({ status: 'active' }).sort({ judgeId: 1 });
-  const roundOneRankings = calculateRoundOneRankings(contestants, roundOneScores);
-  const rankings = calculateFinalRankings(finalists, roundOneRankings, finalScores);
+  const roundOneRankings = calculateRoundOneRankings(contestants, roundOneScores, roundOneCategories);
+  const rankings = calculateFinalRankings(finalists, roundOneRankings, finalScores, categories);
 
   const missing = [];
   for (const finalist of finalists) {
@@ -39,13 +41,14 @@ async function buildFinalResults() {
       const score = finalScores.find(
         (entry) => entry.judgeId === judge.judgeId && String(entry.contestantId) === String(finalist.contestantId._id)
       );
-      if (!scoreDocumentComplete(score, FINAL_CATEGORIES)) {
+      if (!scoreDocumentComplete(score, categories)) {
         missing.push({ contestantId: finalist.contestantId._id, judgeId: judge.judgeId });
       }
     }
   }
 
   return {
+    categories,
     rankings,
     completion: { complete: missing.length === 0, missing },
     totals: {
@@ -68,9 +71,10 @@ judgeFinalRoutes.get(
     const scores = await FinalRoundScore.find({ judgeId: req.judge.judgeId, round: 'FINAL' });
     const contestants = await Contestant.find();
     const roundOneScores = await RoundOneScore.find({ round: 'ROUND_1' });
-    const roundOneRankings = calculateRoundOneRankings(contestants, roundOneScores);
+    const criteria = await getScoringCriteria();
+    const roundOneRankings = calculateRoundOneRankings(contestants, roundOneScores, criteria.roundOneCategories);
 
-    res.json({ round, finalists, scores, roundOneRankings });
+    res.json({ round, finalists, scores, roundOneRankings, categories: criteria.finalCategories });
   })
 );
 
@@ -85,7 +89,8 @@ judgeFinalRoutes.get(
 
     const contestants = await Contestant.find();
     const roundOneScores = await RoundOneScore.find({ round: 'ROUND_1' });
-    const roundOneRankings = calculateRoundOneRankings(contestants, roundOneScores);
+    const criteria = await getScoringCriteria();
+    const roundOneRankings = calculateRoundOneRankings(contestants, roundOneScores, criteria.roundOneCategories);
     const roundOne = roundOneRankings.find((result) => String(result.contestant._id) === String(finalist.contestantId._id));
     const score = await FinalRoundScore.findOne({
       judgeId: req.judge.judgeId,
@@ -93,7 +98,7 @@ judgeFinalRoutes.get(
       round: 'FINAL'
     });
 
-    res.json({ round, finalist, roundOne, score, categories: FINAL_CATEGORIES });
+    res.json({ round, finalist, roundOne, score, categories: criteria.finalCategories });
   })
 );
 
@@ -107,7 +112,8 @@ judgeFinalRoutes.post(
     const finalist = await Finalist.findOne({ contestantId: req.body.contestantId, round: 'FINAL' });
     if (!finalist) throw new HttpError(403, 'This contestant is not a finalist.');
 
-    const patch = validateScorePatch(req.body, FINAL_CATEGORIES.map((category) => category.key));
+    const criteria = await getScoringCriteria();
+    const patch = validateScorePatch(req.body, criteria.finalCategories.map((category) => category.key));
     const previous = await FinalRoundScore.findOne({
       judgeId: req.judge.judgeId,
       contestantId: req.body.contestantId,
@@ -130,7 +136,7 @@ judgeFinalRoutes.post(
       newValue: score
     });
 
-    const results = await buildFinalResults();
+    const results = await buildFinalResults(criteria);
     emitToAdmins(previous ? 'score:updated' : 'score:created', { round: 'FINAL', score });
     emitToAdmins('results:updated', results);
     res.status(previous ? 200 : 201).json({ score });
@@ -150,7 +156,8 @@ judgeFinalRoutes.put(
       throw new HttpError(403, 'You are not authorized to modify this score.');
     }
 
-    const patch = validateScorePatch(req.body, FINAL_CATEGORIES.map((category) => category.key));
+    const criteria = await getScoringCriteria();
+    const patch = validateScorePatch(req.body, criteria.finalCategories.map((category) => category.key));
     const score = await FinalRoundScore.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true, runValidators: true });
     await logAudit({
       user: req.user,
@@ -162,7 +169,7 @@ judgeFinalRoutes.put(
       newValue: score
     });
 
-    const results = await buildFinalResults();
+    const results = await buildFinalResults(criteria);
     emitToAdmins('score:updated', { round: 'FINAL', score });
     emitToAdmins('results:updated', results);
     res.json({ score });

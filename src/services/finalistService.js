@@ -6,13 +6,14 @@ import { RoundOneScore } from '../models/RoundOneScore.js';
 import { HttpError } from '../utils/httpError.js';
 import { logAudit } from './auditService.js';
 import { emitToAdmins } from './socketBus.js';
+import { getScoringCriteria } from './criteriaService.js';
 import {
   calculateRoundOneRankings,
   detectTie,
   validateRoundCompletion
 } from './scoringService.js';
 
-export async function generateFinalists({ user } = {}) {
+export async function generateFinalists({ user, categories } = {}) {
   const roundOne = await Round.findOne({ name: 'ROUND_1' });
 
   if (!roundOne || roundOne.status !== 'LOCKED') {
@@ -22,13 +23,14 @@ export async function generateFinalists({ user } = {}) {
   const contestants = await Contestant.find().sort({ contestantNumber: 1 });
   const activeJudges = await Judge.find({ status: 'active' }).sort({ judgeId: 1 });
   const scores = await RoundOneScore.find({ round: 'ROUND_1' });
-  const completion = validateRoundCompletion(activeJudges, contestants, scores);
+  const activeCategories = categories || (await getScoringCriteria()).roundOneCategories;
+  const completion = validateRoundCompletion(activeJudges, contestants, scores, activeCategories);
 
   if (!completion.complete) {
     throw new HttpError(409, 'All required scores must be submitted before locking.', completion.missing);
   }
 
-  const rankings = calculateRoundOneRankings(contestants, scores);
+  const rankings = calculateRoundOneRankings(contestants, scores, activeCategories);
   const tie = detectTie(rankings, 5);
 
   if (tie.tied) {

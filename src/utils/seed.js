@@ -128,8 +128,7 @@ await Pageant.create({
   motto: 'Beauty, Brains, and Elegance',
   eventDate: new Date(),
   venue: 'Grand Ballroom',
-  themeColor: '#c99a2e',
-  soundEnabled: true
+  themeColor: '#c99a2e'
 });
 
 await SpecialAward.create([
@@ -153,4 +152,3 @@ console.log(`Admin: ${env.adminUsername} / ${env.adminPassword}`);
 console.log(`Judges: judge001-judge005 / ${judgePassword}`);
 
 await mongoose.disconnect();
-

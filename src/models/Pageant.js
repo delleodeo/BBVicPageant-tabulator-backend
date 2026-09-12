@@ -1,4 +1,18 @@
 import mongoose from 'mongoose';
+import {
+  DEFAULT_FINAL_CATEGORIES,
+  DEFAULT_ROUND_ONE_CATEGORIES,
+  cloneCriteria
+} from '../config/scoringCriteria.js';
+
+const criterionSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    label: { type: String, required: true, trim: true },
+    weight: { type: Number, required: true, min: 0 }
+  },
+  { _id: false }
+);
 
 const pageantSchema = new mongoose.Schema(
   {
@@ -10,8 +24,15 @@ const pageantSchema = new mongoose.Schema(
     venue: { type: String, default: 'Grand Ballroom' },
     logo: { type: String, default: '' },
     themeColor: { type: String, default: '#c99a2e' },
-    soundEnabled: { type: Boolean, default: true },
     finalistCount: { type: Number, default: 5 },
+    roundOneCategories: {
+      type: [criterionSchema],
+      default: () => cloneCriteria(DEFAULT_ROUND_ONE_CATEGORIES)
+    },
+    finalCategories: {
+      type: [criterionSchema],
+      default: () => cloneCriteria(DEFAULT_FINAL_CATEGORIES)
+    },
     roundOneLocked: { type: Boolean, default: false },
     finalRoundLocked: { type: Boolean, default: false }
   },

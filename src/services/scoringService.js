@@ -1,17 +1,12 @@
 import { HttpError } from '../utils/httpError.js';
+import {
+  DEFAULT_FINAL_CATEGORIES,
+  DEFAULT_ROUND_ONE_CATEGORIES,
+  FINAL_ROUND_ONE_CARRYOVER_WEIGHT
+} from '../config/scoringCriteria.js';
 
-export const ROUND_ONE_CATEGORIES = [
-  { key: 'productionOutfit', label: 'Production Outfit', weight: 10 },
-  { key: 'swimsuit', label: 'Swimsuit', weight: 10 },
-  { key: 'festivalCostume', label: 'Festival Costume', weight: 30 },
-  { key: 'eveningGown', label: 'Evening Gown', weight: 20 },
-  { key: 'beautyIntelligence', label: 'Beauty & Intelligence', weight: 30 }
-];
-
-export const FINAL_CATEGORIES = [
-  { key: 'intelligence', label: 'Intelligence', weight: 40 },
-  { key: 'beauty', label: 'Beauty', weight: 40 }
-];
+export const ROUND_ONE_CATEGORIES = DEFAULT_ROUND_ONE_CATEGORIES;
+export const FINAL_CATEGORIES = DEFAULT_FINAL_CATEGORIES;
 
 export function round2(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -73,8 +68,8 @@ export function calculateWeightedScore(average, weight) {
   return round2(Number(average) * (weight / 10));
 }
 
-export function calculateRoundOneScore(contestant, scores) {
-  const categories = ROUND_ONE_CATEGORIES.map((category) => {
+export function calculateRoundOneScore(contestant, scores, configuredCategories = ROUND_ONE_CATEGORIES) {
+  const categories = configuredCategories.map((category) => {
     const average = calculateCategoryAverage(scores, category.key);
     const weighted = calculateWeightedScore(average, category.weight);
     return { ...category, average, weighted };
@@ -92,12 +87,12 @@ export function calculateRoundOneScore(contestant, scores) {
   };
 }
 
-export function calculateRoundOneRankings(contestants, scores) {
+export function calculateRoundOneRankings(contestants, scores, categories = ROUND_ONE_CATEGORIES) {
   const results = contestants.map((contestant) => {
     const contestantScores = scores.filter(
       (score) => String(score.contestantId?._id || score.contestantId) === String(contestant._id)
     );
-    return calculateRoundOneScore(contestant, contestantScores);
+    return calculateRoundOneScore(contestant, contestantScores, categories);
   });
 
   return results
@@ -105,7 +100,7 @@ export function calculateRoundOneRankings(contestants, scores) {
     .map((result, index) => ({ ...result, rank: index + 1 }));
 }
 
-export function validateRoundCompletion(activeJudges, contestants, scores) {
+export function validateRoundCompletion(activeJudges, contestants, scores, categories = ROUND_ONE_CATEGORIES) {
   const missing = [];
 
   for (const contestant of contestants) {
@@ -116,7 +111,7 @@ export function validateRoundCompletion(activeJudges, contestants, scores) {
           String(entry.contestantId?._id || entry.contestantId) === String(contestant._id)
       );
 
-      if (!scoreDocumentComplete(score, ROUND_ONE_CATEGORIES)) {
+      if (!scoreDocumentComplete(score, categories)) {
         missing.push({
           contestantId: contestant._id,
           contestantNumber: contestant.contestantNumber,
@@ -165,7 +160,7 @@ export function calculateFinalScore(roundOneScore, intelligenceAverage, beautyAv
   return round2(Number(roundOneScore) * 0.2 + Number(intelligenceAverage) * 10 * 0.4 + Number(beautyAverage) * 10 * 0.4);
 }
 
-export function calculateFinalRankings(finalists, roundOneRankings, finalScores) {
+export function calculateFinalRankings(finalists, roundOneRankings, finalScores, categories = FINAL_CATEGORIES) {
   const results = finalists
     .filter((finalist) => finalist.contestantId)
     .map((finalist) => {
@@ -173,15 +168,30 @@ export function calculateFinalRankings(finalists, roundOneRankings, finalScores)
       const contestantId = String(contestant?._id || contestant);
       const roundOne = roundOneRankings.find((result) => String(result.contestant._id) === contestantId);
       const scores = finalScores.filter((score) => String(score.contestantId?._id || score.contestantId) === contestantId);
-      const intelligenceAverage = calculateCategoryAverage(scores, 'intelligence');
-      const beautyAverage = calculateCategoryAverage(scores, 'beauty');
-      const finalScore = calculateFinalScore(roundOne?.total, intelligenceAverage, beautyAverage);
+      const categoryResults = categories.map((category) => {
+        const average = calculateCategoryAverage(scores, category.key);
+        return {
+          ...category,
+          average,
+          score100: average === null ? null : round2(average * 10),
+          weighted: calculateWeightedScore(average, category.weight)
+        };
+      });
+      const finalScore = roundOne?.total == null || categoryResults.some((category) => category.average === null)
+        ? null
+        : round2(
+          Number(roundOne.total) * (FINAL_ROUND_ONE_CARRYOVER_WEIGHT / 100) +
+            categoryResults.reduce((sum, category) => sum + category.weighted, 0)
+        );
+      const intelligenceAverage = categoryResults.find((category) => category.key === 'intelligence')?.score100 ?? null;
+      const beautyAverage = categoryResults.find((category) => category.key === 'beauty')?.score100 ?? null;
 
       return {
         contestant,
         roundOneTotal: roundOne?.total ?? null,
-        intelligenceAverage: intelligenceAverage === null ? null : round2(intelligenceAverage * 10),
-        beautyAverage: beautyAverage === null ? null : round2(beautyAverage * 10),
+        categories: categoryResults,
+        intelligenceAverage,
+        beautyAverage,
         finalScore,
         complete: finalScore !== null
       };
@@ -210,8 +220,8 @@ export function calculateCategoryRankings(contestants, scores, categoryKey) {
     .map((item, index) => ({ ...item, rank: index + 1 }));
 }
 
-export function calculateSpecialAwards(contestants, scores) {
-  return ROUND_ONE_CATEGORIES.map((category) => {
+export function calculateSpecialAwards(contestants, scores, categories = ROUND_ONE_CATEGORIES) {
+  return categories.map((category) => {
     const rankings = calculateCategoryRankings(contestants, scores, category.key);
     const top = rankings[0] || null;
     return {
@@ -219,7 +229,7 @@ export function calculateSpecialAwards(contestants, scores) {
       title: `Best in ${category.label}`,
       categoryLabel: category.label,
       weight: category.weight,
-      winner: top?.average ? top.contestant : null,
+      winner: top?.average !== null && top?.average !== undefined ? top.contestant : null,
       topScore: top?.average ?? null,
       topScore100: top?.score100 ?? null,
       rankings
@@ -227,13 +237,13 @@ export function calculateSpecialAwards(contestants, scores) {
   });
 }
 
-export function calculateJudgeScoringAnalytics(judges, contestants, scores) {
+export function calculateJudgeScoringAnalytics(judges, contestants, scores, categories = ROUND_ONE_CATEGORIES) {
   return judges.map((judge) => {
     const judgeScores = scores.filter((score) => score.judgeId === judge.judgeId);
     const allValues = [];
 
     for (const score of judgeScores) {
-      for (const cat of ROUND_ONE_CATEGORIES) {
+      for (const cat of categories) {
         if (isValidScore(score?.[cat.key])) {
           allValues.push(Number(score[cat.key]));
         }

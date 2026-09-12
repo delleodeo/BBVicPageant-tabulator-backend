@@ -12,6 +12,7 @@ import {
   isValidScore,
   validateRoundCompletion
 } from '../src/services/scoringService.js';
+import { normalizeFinalCriteria, normalizeRoundOneCriteria } from '../src/services/criteriaService.js';
 
 function contestant(id, contestantNumber) {
   return { _id: id, contestantNumber, name: `Contestant ${contestantNumber}` };
@@ -127,5 +128,62 @@ describe('scoringService', () => {
 
     expect(rankings).toHaveLength(1);
     expect(rankings[0].contestant.contestantNumber).toBe('01');
+  });
+
+  it('calculates newly configured Round One criteria using their saved weights', () => {
+    const categories = [
+      { key: 'stagePresence', label: 'Stage Presence', weight: 60 },
+      { key: 'interview', label: 'Interview', weight: 40 }
+    ];
+    const result = calculateRoundOneScore(
+      contestant('c1', '01'),
+      [{ stagePresence: 9, interview: 8 }],
+      categories
+    );
+
+    expect(result.total).toBe(86);
+    expect(result.categories.find((category) => category.key === 'stagePresence').weighted).toBe(54);
+    expect(validateRoundCompletion(
+      [{ judgeId: 'J001' }],
+      [contestant('c1', '01')],
+      [{ contestantId: 'c1', judgeId: 'J001', stagePresence: 9, interview: 8 }],
+      categories
+    ).complete).toBe(true);
+  });
+
+  it('calculates newly configured Final Round criteria with the 20% carry-over', () => {
+    const c1 = contestant('c1', '01');
+    const categories = [
+      { key: 'poise', label: 'Poise', weight: 30 },
+      { key: 'finalAnswer', label: 'Final Answer', weight: 50 }
+    ];
+    const [result] = calculateFinalRankings(
+      [{ contestantId: c1 }],
+      [{ contestant: c1, total: 90 }],
+      [{ contestantId: 'c1', judgeId: 'J001', poise: 9, finalAnswer: 8 }],
+      categories
+    );
+
+    expect(result.finalScore).toBe(85);
+    expect(result.categories.find((category) => category.key === 'finalAnswer').weighted).toBe(40);
+  });
+
+  it('enforces complete criteria weight distributions', () => {
+    expect(normalizeRoundOneCriteria([
+      { key: 'productionOutfit', label: 'Production Outfit', weight: 10 },
+      { key: 'swimsuit', label: 'Swimsuit', weight: 10 },
+      { key: 'festivalCostume', label: 'Festival Costume', weight: 30 },
+      { key: 'eveningGown', label: 'Evening Gown', weight: 20 },
+      { key: 'beautyIntelligence', label: 'Beauty & Intelligence', weight: 20 },
+      { key: 'newCriterion', label: 'New Criterion', weight: 10 }
+    ])).toHaveLength(6);
+    expect(normalizeFinalCriteria([
+      { key: 'intelligence', label: 'Intelligence', weight: 35 },
+      { key: 'beauty', label: 'Beauty', weight: 35 },
+      { key: 'finalCriterion', label: 'Final Criterion', weight: 10 }
+    ])).toHaveLength(3);
+    expect(() => normalizeRoundOneCriteria([
+      { key: 'firstCriterion', label: 'First Criterion', weight: 90 }
+    ])).toThrow('existing criteria cannot be removed');
   });
 });

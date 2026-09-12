@@ -5,6 +5,7 @@ import { RoundOneScore } from '../models/RoundOneScore.js';
 import { SpecialAward } from '../models/SpecialAward.js';
 import { logAudit } from '../services/auditService.js';
 import { calculateSpecialAwards } from '../services/scoringService.js';
+import { getScoringCriteria } from '../services/criteriaService.js';
 import { emitToAdmins, emitToAll } from '../services/socketBus.js';
 import { asyncHandler, HttpError } from '../utils/httpError.js';
 
@@ -13,7 +14,8 @@ export const specialAwardRoutes = express.Router();
 export async function computeSpecialAwardsSummary() {
   const contestants = await Contestant.find().sort({ contestantNumber: 1 });
   const scores = await RoundOneScore.find({ round: 'ROUND_1' });
-  const categoryAwards = calculateSpecialAwards(contestants, scores);
+  const { roundOneCategories } = await getScoringCriteria();
+  const categoryAwards = calculateSpecialAwards(contestants, scores, roundOneCategories);
   const customAwards = await SpecialAward.find().populate('winnerContestantId').sort({ createdAt: 1 });
 
   return {
@@ -129,4 +131,3 @@ specialAwardRoutes.delete(
     res.json({ message: 'Award deleted.' });
   })
 );
-

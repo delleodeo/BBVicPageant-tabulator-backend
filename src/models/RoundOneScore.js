@@ -23,7 +23,7 @@ const roundOneScoreSchema = new mongoose.Schema(
     eveningGown: scoreField,
     beautyIntelligence: scoreField
   },
-  { timestamps: true }
+  { timestamps: true, strict: false }
 );
 
 roundOneScoreSchema.index({ judgeId: 1, contestantId: 1, round: 1 }, { unique: true });

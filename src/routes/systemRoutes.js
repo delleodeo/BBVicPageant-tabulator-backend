@@ -13,6 +13,7 @@ import { RoundOneScore } from '../models/RoundOneScore.js';
 import { SpecialAward } from '../models/SpecialAward.js';
 import { User } from '../models/User.js';
 import { logAudit } from '../services/auditService.js';
+import { getScoringCriteria } from '../services/criteriaService.js';
 import { emitToAll } from '../services/socketBus.js';
 import { asyncHandler } from '../utils/httpError.js';
 
@@ -82,21 +83,22 @@ systemRoutes.post(
 
     const createdContestants = await Contestant.insertMany(sampleContestants);
     const activeJudges = await Judge.find({ status: 'active' });
+    const { roundOneCategories } = await getScoringCriteria();
 
     // Seed sample scores
     for (let cIdx = 0; cIdx < createdContestants.length; cIdx += 1) {
       for (let jIdx = 0; jIdx < activeJudges.length; jIdx += 1) {
         const base = 8.6 + ((cIdx % 4) * 0.2) + ((jIdx % 3) * 0.1);
-        await RoundOneScore.create({
+        const seededScore = {
           judgeId: activeJudges[jIdx].judgeId,
           contestantId: createdContestants[cIdx]._id,
-          round: 'ROUND_1',
-          productionOutfit: Math.min(10, Math.round((base + 0.1) * 10) / 10),
-          swimsuit: Math.min(10, Math.round((base + 0.2) * 10) / 10),
-          festivalCostume: Math.min(10, Math.round((base - 0.1) * 10) / 10),
-          eveningGown: Math.min(10, Math.round((base + 0.3) * 10) / 10),
-          beautyIntelligence: Math.min(10, Math.round((base + 0.2) * 10) / 10)
+          round: 'ROUND_1'
+        };
+        roundOneCategories.forEach((category, categoryIndex) => {
+          const variation = ((categoryIndex % 5) - 1) * 0.1;
+          seededScore[category.key] = Math.min(10, Math.round((base + variation) * 10) / 10);
         });
+        await RoundOneScore.create(seededScore);
       }
     }
 
@@ -129,4 +131,3 @@ systemRoutes.post(
     res.json({ message: 'Pageant reset with fresh sample data.' });
   })
 );
-
