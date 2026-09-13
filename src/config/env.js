@@ -8,7 +8,10 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET,
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
-  adminPassword: process.env.ADMIN_PASSWORD || 'admin12345'
+  adminPassword: process.env.ADMIN_PASSWORD || 'admin12345',
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY,
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET
 };
 
 if (!env.mongoUri) {
@@ -18,4 +21,3 @@ if (!env.mongoUri) {
 if (!env.jwtSecret) {
   throw new Error('JWT_SECRET is required');
 }
-

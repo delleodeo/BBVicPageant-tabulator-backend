@@ -7,6 +7,7 @@ import { JudgeNote } from '../models/JudgeNote.js';
 import { RoundOneScore } from '../models/RoundOneScore.js';
 import { SpecialAward } from '../models/SpecialAward.js';
 import { logAudit } from '../services/auditService.js';
+import { deleteContestantPhoto, getContestantPhotoPublicId } from '../services/cloudinaryService.js';
 import { asyncHandler, HttpError } from '../utils/httpError.js';
 
 export const contestantRoutes = express.Router();
@@ -140,8 +141,16 @@ contestantRoutes.delete(
   '/:id',
   adminOnly,
   asyncHandler(async (req, res) => {
-    const contestant = await Contestant.findByIdAndDelete(req.params.id);
+    const contestant = await Contestant.findById(req.params.id);
     if (!contestant) throw new HttpError(404, 'Contestant not found.');
+
+    const photoPublicId = getContestantPhotoPublicId(contestant.photo);
+    if (photoPublicId) {
+      const sharedPhoto = await Contestant.exists({ _id: { $ne: contestant._id }, photo: contestant.photo });
+      if (!sharedPhoto) await deleteContestantPhoto(photoPublicId);
+    }
+
+    await Contestant.findByIdAndDelete(req.params.id);
 
     await Promise.all([
       Finalist.deleteMany({ contestantId: contestant._id }),

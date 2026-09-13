@@ -1,33 +1,15 @@
-import crypto from 'crypto';
-import path from 'path';
 import express from 'express';
 import multer from 'multer';
-import { contestantUploadDir } from '../config/paths.js';
 import { adminOnly, authMiddleware } from '../middleware/auth.js';
+import { uploadContestantPhoto } from '../services/cloudinaryService.js';
 import { asyncHandler, HttpError } from '../utils/httpError.js';
 
 export const uploadRoutes = express.Router();
 export const MAX_CONTESTANT_PHOTO_BYTES = 15 * 1024 * 1024;
 
 const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const extensionByMimeType = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'image/gif': '.gif'
-};
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, contestantUploadDir),
-  filename: (_req, file, cb) => {
-    const fallbackExt = path.extname(file.originalname || '').toLowerCase();
-    const ext = extensionByMimeType[file.mimetype] || fallbackExt || '.jpg';
-    cb(null, `${Date.now()}-${crypto.randomUUID()}${ext}`);
-  }
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   // Multer treats a file at the limit as oversized, so allow one extra byte
   // internally to accept exactly 15 MB while rejecting anything larger.
   limits: { fileSize: MAX_CONTESTANT_PHOTO_BYTES + 1 },
@@ -60,16 +42,16 @@ uploadRoutes.post(
       throw new HttpError(422, 'No image file uploaded.');
     }
 
-    const pathUrl = `/uploads/contestants/${req.file.filename}`;
+    const uploaded = await uploadContestantPhoto(req.file);
     res.status(201).json({
       file: {
         originalName: req.file.originalname,
-        filename: req.file.filename,
+        publicId: uploaded.publicId,
         size: req.file.size,
         mimeType: req.file.mimetype
       },
-      path: pathUrl,
-      url: pathUrl
+      path: uploaded.url,
+      url: uploaded.url
     });
   })
 );
