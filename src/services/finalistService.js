@@ -5,7 +5,7 @@ import { Round } from '../models/Round.js';
 import { RoundOneScore } from '../models/RoundOneScore.js';
 import { HttpError } from '../utils/httpError.js';
 import { logAudit } from './auditService.js';
-import { emitToAdmins } from './socketBus.js';
+import { emitToAdmins, emitToJudges } from './socketBus.js';
 import { getScoringCriteria } from './criteriaService.js';
 import {
   calculateRoundOneRankings,
@@ -74,6 +74,7 @@ export async function generateFinalists({ user, categories } = {}) {
   const finalists = await getFinalists();
   emitToAdmins('finalists:generated', { finalists });
   emitToAdmins('round:opened', { round: 'FINAL' });
+  emitToJudges('round:opened', { round: 'FINAL' });
 
   return finalists;
 }

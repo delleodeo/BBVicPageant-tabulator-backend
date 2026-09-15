@@ -3,7 +3,13 @@ import { adminOnly, authMiddleware } from '../middleware/auth.js';
 import { buildFinalResults } from './finalRoutes.js';
 import { buildRoundOneResults } from './roundOneRoutes.js';
 import { computeSpecialAwardsSummary } from './specialAwardRoutes.js';
-import { generateCertifiedPdf } from '../services/pdfService.js';
+import { Contestant } from '../models/Contestant.js';
+import { FinalRoundScore } from '../models/FinalRoundScore.js';
+import { Judge } from '../models/Judge.js';
+import { RoundOneScore } from '../models/RoundOneScore.js';
+import { getFinalists } from '../services/finalistService.js';
+import { getScoringCriteria } from '../services/criteriaService.js';
+import { generateCategoryScorePdf, generateCertifiedPdf } from '../services/pdfService.js';
 import { asyncHandler, HttpError } from '../utils/httpError.js';
 
 export const exportRoutes = express.Router();
@@ -117,5 +123,32 @@ exportRoutes.get(
       });
     }
     throw new HttpError(400, 'Unsupported export format.');
+  })
+);
+
+exportRoutes.get(
+  '/:round/category/:categoryKey',
+  asyncHandler(async (req, res) => {
+    const isFinal = req.params.round === 'final';
+    if (!isFinal && req.params.round !== 'round-one') throw new HttpError(404, 'Round not found.');
+    const criteria = await getScoringCriteria();
+    const category = (isFinal ? criteria.finalCategories : criteria.roundOneCategories)
+      .find((item) => item.key === req.params.categoryKey);
+    if (!category) throw new HttpError(404, 'Category not found.');
+
+    const [judges, contestants, scores] = await Promise.all([
+      Judge.find({ status: 'active' }).sort({ judgeId: 1 }),
+      isFinal ? getFinalists().then((finalists) => finalists.map((finalist) => finalist.contestantId))
+        : Contestant.find().sort({ contestantNumber: 1 }),
+      isFinal ? FinalRoundScore.find({ round: 'FINAL' }) : RoundOneScore.find({ round: 'ROUND_1' })
+    ]);
+    return generateCategoryScorePdf({
+      res,
+      roundLabel: isFinal ? 'Final Round' : 'Round One',
+      category,
+      judges,
+      contestants,
+      scores
+    });
   })
 );

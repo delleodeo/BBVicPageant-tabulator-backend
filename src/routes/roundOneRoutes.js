@@ -8,9 +8,10 @@ import { logAudit } from '../services/auditService.js';
 import { generateFinalists } from '../services/finalistService.js';
 import { getRound } from '../services/roundService.js';
 import { Pageant } from '../models/Pageant.js';
-import { emitToAdmins } from '../services/socketBus.js';
-import { getScoringCriteria } from '../services/criteriaService.js';
+import { emitToAdmins, emitToJudges } from '../services/socketBus.js';
+import { assertCategoriesUnlocked, getScoringCriteria } from '../services/criteriaService.js';
 import {
+  calculateCategoryJudgeProgress,
   calculateRoundOneRankings,
   validateRoundCompletion,
   validateScorePatch
@@ -49,6 +50,8 @@ async function buildRoundOneResults(configuredCategories) {
 
   return {
     categories,
+    judgeScores: scores,
+    categoryJudgeProgress: calculateCategoryJudgeProgress(judges, contestants, scores, categories),
     rankings,
     completion,
     judgeProgress,
@@ -103,6 +106,7 @@ judgeRoundOneRoutes.post(
 
     const { roundOneCategories: categories } = await getScoringCriteria();
     const patch = validateScorePatch(req.body, categories.map((category) => category.key));
+    assertCategoriesUnlocked(categories, patch);
     const previous = await RoundOneScore.findOne({
       judgeId: req.judge.judgeId,
       contestantId: contestant._id,
@@ -149,6 +153,7 @@ judgeRoundOneRoutes.put(
 
     const { roundOneCategories: categories } = await getScoringCriteria();
     const patch = validateScorePatch(req.body, categories.map((category) => category.key));
+    assertCategoriesUnlocked(categories, patch);
     const score = await RoundOneScore.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true, runValidators: true });
 
     await logAudit({
@@ -204,6 +209,7 @@ adminRoundOneRoutes.post(
 
     await logAudit({ user: req.user, action: 'ROUND_1_OPENED', round: 'ROUND_1' });
     emitToAdmins('round:opened', { round: 'ROUND_1' });
+    emitToJudges('round:opened', { round: 'ROUND_1' });
     res.json({ round });
   })
 );
@@ -234,6 +240,7 @@ adminRoundOneRoutes.post(
     const results = await buildRoundOneResults(categories);
 
     emitToAdmins('round:locked', { round: 'ROUND_1' });
+    emitToJudges('round:locked', { round: 'ROUND_1' });
     emitToAdmins('results:updated', results);
 
     res.json({ round, finalists, ...results });
@@ -258,6 +265,7 @@ adminRoundOneRoutes.post(
     const results = await buildRoundOneResults();
     await logAudit({ user: req.user, action: 'ROUND_1_UNLOCKED', round: 'ROUND_1' });
     emitToAdmins('round:unlocked', { round: 'ROUND_1' });
+    emitToJudges('round:unlocked', { round: 'ROUND_1' });
     emitToAdmins('results:updated', results);
 
     res.json({ round, ...results });

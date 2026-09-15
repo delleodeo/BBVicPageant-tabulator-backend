@@ -9,10 +9,11 @@ import { RoundOneScore } from '../models/RoundOneScore.js';
 import { logAudit } from '../services/auditService.js';
 import { getFinalists, validateFinalistRoster } from '../services/finalistService.js';
 import { getRound } from '../services/roundService.js';
-import { emitToAdmins } from '../services/socketBus.js';
+import { emitToAdmins, emitToJudges } from '../services/socketBus.js';
 import { Pageant } from '../models/Pageant.js';
-import { getScoringCriteria } from '../services/criteriaService.js';
+import { assertCategoriesUnlocked, getScoringCriteria } from '../services/criteriaService.js';
 import {
+  calculateCategoryJudgeProgress,
   calculateFinalRankings,
   calculateRoundOneRankings,
   scoreDocumentComplete,
@@ -49,6 +50,7 @@ async function buildFinalResults(configuredCriteria) {
 
   return {
     categories,
+    categoryJudgeProgress: calculateCategoryJudgeProgress(activeJudges, finalists.map((finalist) => finalist.contestantId), finalScores, categories),
     rankings,
     completion: { complete: missing.length === 0, missing },
     totals: {
@@ -114,6 +116,7 @@ judgeFinalRoutes.post(
 
     const criteria = await getScoringCriteria();
     const patch = validateScorePatch(req.body, criteria.finalCategories.map((category) => category.key));
+    assertCategoriesUnlocked(criteria.finalCategories, patch);
     const previous = await FinalRoundScore.findOne({
       judgeId: req.judge.judgeId,
       contestantId: req.body.contestantId,
@@ -158,6 +161,7 @@ judgeFinalRoutes.put(
 
     const criteria = await getScoringCriteria();
     const patch = validateScorePatch(req.body, criteria.finalCategories.map((category) => category.key));
+    assertCategoriesUnlocked(criteria.finalCategories, patch);
     const score = await FinalRoundScore.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true, runValidators: true });
     await logAudit({
       user: req.user,
@@ -205,6 +209,7 @@ adminFinalRoutes.post(
 
     await logAudit({ user: req.user, action: 'FINAL_ROUND_OPENED', round: 'FINAL' });
     emitToAdmins('round:opened', { round: 'FINAL' });
+    emitToJudges('round:opened', { round: 'FINAL' });
     res.json({ round });
   })
 );
@@ -226,6 +231,7 @@ adminFinalRoutes.post(
 
     await logAudit({ user: req.user, action: 'FINAL_ROUND_LOCKED', round: 'FINAL' });
     emitToAdmins('round:locked', { round: 'FINAL' });
+    emitToJudges('round:locked', { round: 'FINAL' });
     emitToAdmins('results:updated', results);
     res.json({ round, ...results });
   })
@@ -247,6 +253,7 @@ adminFinalRoutes.post(
     await Pageant.findOneAndUpdate({}, { $set: { finalRoundLocked: false } });
     await logAudit({ user: req.user, action: 'FINAL_ROUND_UNLOCKED', round: 'FINAL' });
     emitToAdmins('round:unlocked', { round: 'FINAL' });
+    emitToJudges('round:unlocked', { round: 'FINAL' });
     res.json({ round });
   })
 );

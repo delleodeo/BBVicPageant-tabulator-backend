@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateCategoryAverage,
+  calculateCategoryJudgeProgress,
   calculateCategoryRankings,
   calculateFinalRankings,
   calculateFinalScore,
@@ -12,13 +13,34 @@ import {
   isValidScore,
   validateRoundCompletion
 } from '../src/services/scoringService.js';
-import { normalizeFinalCriteria, normalizeRoundOneCriteria } from '../src/services/criteriaService.js';
+import { assertCategoriesUnlocked, normalizeFinalCriteria, normalizeRoundOneCriteria } from '../src/services/criteriaService.js';
 
 function contestant(id, contestantNumber) {
   return { _id: id, contestantNumber, name: `Contestant ${contestantNumber}` };
 }
 
 describe('scoringService', () => {
+  it('lists judges and candidates still missing a category score', () => {
+    const progress = calculateCategoryJudgeProgress(
+      [{ judgeId: 'J1', name: 'Judge One' }, { judgeId: 'J2', name: 'Judge Two' }],
+      [contestant('c1', '01'), contestant('c2', '02')],
+      [{ judgeId: 'J1', contestantId: 'c1', outfit: 0 }, { judgeId: 'J1', contestantId: 'c2', outfit: 8.7 }],
+      [{ key: 'outfit', label: 'Outfit' }]
+    )[0];
+    expect(progress.pendingJudgeCount).toBe(1);
+    expect(progress.judges[0].completed).toBe(2);
+    expect(progress.judges[1].missing.map((candidate) => candidate.contestantNumber)).toEqual(['01', '02']);
+  });
+
+  it('blocks score changes to a locked category while allowing other categories', () => {
+    const categories = [
+      { key: 'outfit', label: 'Outfit', locked: true },
+      { key: 'swimsuit', label: 'Swimsuit', locked: false }
+    ];
+    expect(() => assertCategoriesUnlocked(categories, { outfit: 8.7 })).toThrow('Outfit is locked.');
+    expect(() => assertCategoriesUnlocked(categories, { swimsuit: 8.7 })).not.toThrow();
+  });
+
   it('validates score range and one-decimal increments', () => {
     expect(isValidScore(0)).toBe(true);
     expect(isValidScore(9.9)).toBe(true);

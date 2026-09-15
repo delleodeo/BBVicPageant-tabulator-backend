@@ -33,7 +33,8 @@ function plainCriteria(criteria) {
   return criteria.map((criterion) => ({
     key: criterion.key,
     label: criterion.label,
-    weight: Number(criterion.weight)
+    weight: Number(criterion.weight),
+    locked: criterion.locked === true
   }));
 }
 
@@ -61,7 +62,7 @@ export function normalizeCriteria(criteria, { fieldName, expectedWeight, require
       throw new HttpError(422, `${fieldName} criterion ${index + 1} has an invalid weight.`);
     }
 
-    return { key, label, weight };
+    return { key, label, weight, locked: criterion.locked === true };
   });
 
   const keys = normalized.map(({ key }) => key);
@@ -115,4 +116,9 @@ export async function getScoringCriteria() {
   let pageant = await Pageant.findOne().sort({ createdAt: 1 });
   if (!pageant) pageant = await Pageant.create({});
   return criteriaFromPageant(pageant);
+}
+
+export function assertCategoriesUnlocked(categories, scorePatch) {
+  const locked = categories.find((category) => category.locked === true && Object.hasOwn(scorePatch, category.key));
+  if (locked) throw new HttpError(403, `${locked.label} is locked.`);
 }

@@ -15,11 +15,13 @@ import { User } from '../models/User.js';
 import { logAudit } from '../services/auditService.js';
 import { getScoringCriteria } from '../services/criteriaService.js';
 import { emitToAll } from '../services/socketBus.js';
-import { asyncHandler } from '../utils/httpError.js';
+import { asyncHandler, HttpError } from '../utils/httpError.js';
 
 export const systemRoutes = express.Router();
 
 systemRoutes.use(authMiddleware, adminOnly);
+
+const SCORE_RESET_CONFIRMATION = 'tabulation';
 
 // Pageant snapshot backup
 systemRoutes.get(
@@ -52,6 +54,70 @@ systemRoutes.get(
     res.header('Content-Type', 'application/json');
     res.attachment(`pageant-backup-${Date.now()}.json`);
     res.json(backup);
+  })
+);
+
+// Permanently delete every judge score while preserving pageant setup data.
+systemRoutes.post(
+  '/reset-scores',
+  asyncHandler(async (req, res) => {
+    if (req.body?.confirmation !== SCORE_RESET_CONFIRMATION) {
+      throw new HttpError(422, `Type "${SCORE_RESET_CONFIRMATION}" exactly to reset all judge scores.`);
+    }
+
+    const resetAt = new Date();
+    const [roundOneResult, finalResult, finalistResult] = await Promise.all([
+      RoundOneScore.deleteMany({}),
+      FinalRoundScore.deleteMany({}),
+      Finalist.deleteMany({ round: 'FINAL' }),
+      Contestant.updateMany(
+        { status: { $in: ['FINALIST', 'ELIMINATED'] } },
+        { $set: { status: 'ACTIVE' } }
+      ),
+      Round.findOneAndUpdate(
+        { name: 'ROUND_1' },
+        { $set: { status: 'OPEN', openedAt: resetAt, lockedAt: null } },
+        { upsert: true, new: true }
+      ),
+      Round.findOneAndUpdate(
+        { name: 'FINAL' },
+        { $set: { status: 'SETUP', openedAt: null, lockedAt: null } },
+        { upsert: true, new: true }
+      ),
+      Pageant.findOneAndUpdate(
+        {},
+        { $set: { roundOneLocked: false, finalRoundLocked: false } },
+        { upsert: true, new: true }
+      )
+    ]);
+    const deletedScores = {
+      roundOne: roundOneResult.deletedCount || 0,
+      final: finalResult.deletedCount || 0
+    };
+    deletedScores.total = deletedScores.roundOne + deletedScores.final;
+    const resetState = {
+      finalistsRemoved: finalistResult.deletedCount || 0,
+      roundOne: 'OPEN',
+      finalRound: 'SETUP'
+    };
+
+    await logAudit({
+      user: req.user,
+      action: 'ALL_JUDGE_SCORES_RESET',
+      previousValue: { deletedScores, finalistsRemoved: resetState.finalistsRemoved },
+      newValue: { roundOneScores: 0, finalScores: 0, roundOne: 'OPEN', finalRound: 'SETUP' }
+    });
+
+    const payload = { deletedScores, resetState, resetAt: resetAt.toISOString() };
+    emitToAll('scores:reset', payload);
+    emitToAll('results:updated', payload);
+    emitToAll('round:opened', { round: 'ROUND_1' });
+
+    res.json({
+      message: 'All judge scores were reset. Round 1 is open and the Final Round returned to setup.',
+      deletedScores,
+      resetState
+    });
   })
 );
 

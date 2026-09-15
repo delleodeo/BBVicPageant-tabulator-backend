@@ -9,7 +9,8 @@ const criterionSchema = new mongoose.Schema(
   {
     key: { type: String, required: true },
     label: { type: String, required: true, trim: true },
-    weight: { type: Number, required: true, min: 0 }
+    weight: { type: Number, required: true, min: 0 },
+    locked: { type: Boolean, default: false }
   },
   { _id: false }
 );

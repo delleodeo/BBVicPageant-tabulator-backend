@@ -49,6 +49,37 @@ export function scoreDocumentComplete(score, categories = ROUND_ONE_CATEGORIES) 
   return categories.every((category) => isValidScore(score?.[category.key]));
 }
 
+export function calculateCategoryJudgeProgress(judges, contestants, scores, categories) {
+  const scoreIndex = new Map(scores.map((score) =>
+    [`${score.judgeId}:${score.contestantId}`, score]));
+  return categories.map((category) => {
+    const judgeProgress = judges.map((judge) => {
+      const missing = contestants.filter((contestant) => {
+        const score = scoreIndex.get(`${judge.judgeId}:${contestant._id}`);
+        return !isValidScore(score?.[category.key]);
+      }).map((contestant) => ({
+        contestantId: contestant._id,
+        contestantNumber: contestant.contestantNumber,
+        name: contestant.name
+      }));
+      return {
+        judgeId: judge.judgeId,
+        name: judge.name,
+        completed: contestants.length - missing.length,
+        total: contestants.length,
+        missing
+      };
+    });
+    return {
+      key: category.key,
+      label: category.label,
+      locked: category.locked === true,
+      pendingJudgeCount: judgeProgress.filter((judge) => judge.missing.length > 0).length,
+      judges: judgeProgress
+    };
+  });
+}
+
 export function calculateCategoryAverage(scores, categoryKey) {
   const values = scores
     .map((score) => score?.[categoryKey])
