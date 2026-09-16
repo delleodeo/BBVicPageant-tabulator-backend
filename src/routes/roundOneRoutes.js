@@ -8,7 +8,7 @@ import { logAudit } from '../services/auditService.js';
 import { generateFinalists } from '../services/finalistService.js';
 import { getRound } from '../services/roundService.js';
 import { Pageant } from '../models/Pageant.js';
-import { emitToAdmins, emitToJudges } from '../services/socketBus.js';
+import { emitToAdmins, emitToAll, emitToJudges } from '../services/socketBus.js';
 import { assertCategoriesUnlocked, getScoringCriteria } from '../services/criteriaService.js';
 import {
   calculateCategoryJudgeProgress,
@@ -234,6 +234,19 @@ adminRoundOneRoutes.post(
     );
     // Mark round as locked in Pageant document
     await Pageant.findOneAndUpdate({}, { $set: { roundOneLocked: true } });
+
+    // Auto-lock all Round 1 categories
+    const pageant = await Pageant.findOne().sort({ createdAt: 1 });
+    if (pageant) {
+      for (const cat of pageant.roundOneCategories) {
+        cat.locked = true;
+      }
+      await pageant.save();
+      emitToAll('criteria:updated', {
+        roundOneCategories: pageant.roundOneCategories,
+        finalCategories: pageant.finalCategories
+      });
+    }
 
     await logAudit({ user: req.user, action: 'ROUND_1_LOCKED', round: 'ROUND_1' });
     const finalists = await generateFinalists({ user: req.user, categories });
