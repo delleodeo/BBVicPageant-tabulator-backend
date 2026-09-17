@@ -204,8 +204,10 @@ describe('scoringService', () => {
       { key: 'beauty', label: 'Beauty', weight: 35 },
       { key: 'finalCriterion', label: 'Final Criterion', weight: 10 }
     ])).toHaveLength(3);
-    expect(() => normalizeRoundOneCriteria([
-      { key: 'firstCriterion', label: 'First Criterion', weight: 90 }
-    ])).toThrow('existing criteria cannot be removed');
+    expect(normalizeRoundOneCriteria([
+      { key: 'firstCriterion', label: 'First Criterion', weight: 100 }
+    ])).toEqual([
+      { key: 'firstCriterion', label: 'First Criterion', weight: 100, locked: false }
+    ]);
   });
 });

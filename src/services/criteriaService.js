@@ -38,7 +38,7 @@ function plainCriteria(criteria) {
   }));
 }
 
-export function normalizeCriteria(criteria, { fieldName, expectedWeight, requiredKeys = [] }) {
+export function normalizeCriteria(criteria, { fieldName, expectedWeight }) {
   if (!Array.isArray(criteria) || criteria.length === 0) {
     throw new HttpError(422, `${fieldName} must contain at least one criterion.`);
   }
@@ -69,9 +69,6 @@ export function normalizeCriteria(criteria, { fieldName, expectedWeight, require
   if (new Set(keys).size !== keys.length) {
     throw new HttpError(422, `${fieldName} criterion keys must be unique.`);
   }
-  if (requiredKeys.some((key) => !keys.includes(key))) {
-    throw new HttpError(422, `${fieldName} existing criteria cannot be removed.`);
-  }
   const labels = normalized.map(({ label }) => label.toLowerCase());
   if (new Set(labels).size !== labels.length) {
     throw new HttpError(422, `${fieldName} criterion labels must be unique.`);
@@ -88,16 +85,14 @@ export function normalizeCriteria(criteria, { fieldName, expectedWeight, require
 export function normalizeRoundOneCriteria(criteria) {
   return normalizeCriteria(criteria, {
     fieldName: 'Round One criteria',
-    expectedWeight: ROUND_ONE_TOTAL_WEIGHT,
-    requiredKeys: DEFAULT_ROUND_ONE_CATEGORIES.map(({ key }) => key)
+    expectedWeight: ROUND_ONE_TOTAL_WEIGHT
   });
 }
 
 export function normalizeFinalCriteria(criteria) {
   return normalizeCriteria(criteria, {
     fieldName: 'Final Round criteria',
-    expectedWeight: FINAL_CATEGORIES_TOTAL_WEIGHT,
-    requiredKeys: DEFAULT_FINAL_CATEGORIES.map(({ key }) => key)
+    expectedWeight: FINAL_CATEGORIES_TOTAL_WEIGHT
   });
 }
 
