@@ -41,10 +41,12 @@ describe('MongoDB SRV DNS resolution', () => {
     expect(mongoose.connect).toHaveBeenCalledWith('mongodb+srv://user:password@cluster.example.net/database');
   });
 
-  it('retries an invalid SRV response with the configured fallback resolvers', async () => {
+  it.each(['EBADRESP', 'ECONNREFUSED', 'ESERVFAIL', 'ETIMEOUT'])(
+    'retries a %s SRV failure with the configured fallback resolvers',
+    async (errorCode) => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.mocked(dns.promises.resolveSrv)
-      .mockRejectedValueOnce(Object.assign(new Error('Invalid DNS response'), { code: 'EBADRESP' }))
+      .mockRejectedValueOnce(Object.assign(new Error('DNS resolution failed'), { code: errorCode }))
       .mockResolvedValueOnce([{ name: 'db.example.net', port: 27017 }]);
 
     await connectDb();
@@ -52,7 +54,8 @@ describe('MongoDB SRV DNS resolution', () => {
     expect(dns.setServers).toHaveBeenCalledWith(['1.1.1.1', '8.8.8.8']);
     expect(dns.promises.resolveSrv).toHaveBeenCalledTimes(2);
     expect(mongoose.connect).toHaveBeenCalledOnce();
-  });
+    }
+  );
 
   it('does not mask unrelated DNS errors', async () => {
     vi.mocked(dns.promises.resolveSrv)

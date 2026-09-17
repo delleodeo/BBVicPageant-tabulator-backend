@@ -2,6 +2,8 @@ import dns from 'node:dns';
 import mongoose from 'mongoose';
 import { env } from './env.js';
 
+const RETRYABLE_DNS_ERRORS = new Set(['EBADRESP', 'ECONNREFUSED', 'ESERVFAIL', 'ETIMEOUT']);
+
 function mongoSrvHostname(uri) {
   if (!uri?.startsWith('mongodb+srv://')) return null;
 
@@ -19,10 +21,10 @@ async function ensureMongoSrvResolution() {
   try {
     await dns.promises.resolveSrv(`_mongodb._tcp.${hostname}`);
   } catch (error) {
-    if (error.code !== 'EBADRESP' || env.mongoDnsServers.length === 0) throw error;
+    if (!RETRYABLE_DNS_ERRORS.has(error.code) || env.mongoDnsServers.length === 0) throw error;
 
     dns.setServers(env.mongoDnsServers);
-    console.warn(`Default DNS returned an invalid MongoDB SRV response. Retrying with ${env.mongoDnsServers.join(', ')}.`);
+    console.warn(`Default DNS failed to resolve MongoDB SRV (${error.code}). Retrying with ${env.mongoDnsServers.join(', ')}.`);
     await dns.promises.resolveSrv(`_mongodb._tcp.${hostname}`);
   }
 }
