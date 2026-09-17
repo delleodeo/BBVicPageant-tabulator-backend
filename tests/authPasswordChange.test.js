@@ -26,7 +26,7 @@ import { errorHandler } from '../src/middleware/errorHandler.js';
 import { authRoutes } from '../src/routes/authRoutes.js';
 import { logAudit } from '../src/services/auditService.js';
 
-describe('administrator password change', () => {
+describe('authenticated account password change', () => {
   let server;
   let baseUrl;
 
@@ -110,7 +110,7 @@ describe('administrator password change', () => {
     expect(authState.user.save).not.toHaveBeenCalled();
   });
 
-  it('does not allow a judge to use the administrator password endpoint', async () => {
+  it('allows a judge to change their password and audits the event', async () => {
     authState.user.role = 'judge';
     const response = await changePassword({
       currentPassword: 'CurrentPass123',
@@ -118,7 +118,12 @@ describe('administrator password change', () => {
       confirmPassword: 'ReplacementPass456'
     });
 
-    expect(response.status).toBe(403);
-    expect(authState.user.save).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await bcrypt.compare('ReplacementPass456', authState.user.passwordHash)).toBe(true);
+    expect(authState.user.save).toHaveBeenCalledOnce();
+    expect(logAudit).toHaveBeenCalledWith({
+      user: authState.user,
+      action: 'JUDGE_PASSWORD_CHANGED'
+    });
   });
 });

@@ -5,6 +5,10 @@ dotenv.config();
 export const env = {
   port: process.env.PORT || 5000,
   mongoUri: process.env.MONGO_URI,
+  mongoDnsServers: (process.env.MONGO_DNS_SERVERS || '1.1.1.1,8.8.8.8')
+    .split(',')
+    .map((server) => server.trim())
+    .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET,
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
   adminUsername: process.env.ADMIN_USERNAME || 'admin',

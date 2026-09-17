@@ -1,7 +1,10 @@
 import bcrypt from 'bcryptjs';
 import express from 'express';
 import { adminOnly, authMiddleware } from '../middleware/auth.js';
+import { FinalRoundScore } from '../models/FinalRoundScore.js';
 import { Judge } from '../models/Judge.js';
+import { JudgeNote } from '../models/JudgeNote.js';
+import { RoundOneScore } from '../models/RoundOneScore.js';
 import { User } from '../models/User.js';
 import { logAudit } from '../services/auditService.js';
 import { asyncHandler, HttpError } from '../utils/httpError.js';
@@ -52,6 +55,12 @@ judgeRoutes.put(
     const judge = await Judge.findById(req.params.id);
     if (!judge) throw new HttpError(404, 'Judge not found.');
     const previous = judge.toObject();
+    const usernameProvided = Object.prototype.hasOwnProperty.call(req.body, 'username');
+    const username = usernameProvided ? String(req.body.username || '').trim().toLowerCase() : undefined;
+
+    if (usernameProvided && !username) {
+      throw new HttpError(422, 'Username is required.');
+    }
 
     judge.judgeId = req.body.judgeId ?? judge.judgeId;
     judge.name = req.body.name ?? judge.name;
@@ -60,11 +69,11 @@ judgeRoutes.put(
     judge.status = req.body.status ?? judge.status;
     await judge.save();
 
-    if (req.body.username || req.body.status) {
+    if (usernameProvided || req.body.status) {
       await User.findByIdAndUpdate(judge.userId, {
-        ...(req.body.username ? { username: req.body.username } : {}),
+        ...(usernameProvided ? { username } : {}),
         ...(req.body.status ? { status: req.body.status } : {})
-      });
+      }, { runValidators: true });
     }
 
     await logAudit({ user: req.user, action: 'JUDGE_UPDATED', judgeId: judge.judgeId, previousValue: previous, newValue: judge });
@@ -97,3 +106,28 @@ judgeRoutes.post(
   })
 );
 
+judgeRoutes.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const judge = await Judge.findById(req.params.id);
+    if (!judge) throw new HttpError(404, 'Judge not found.');
+
+    const previous = judge.toObject();
+    await Judge.findByIdAndDelete(judge._id);
+
+    await Promise.all([
+      User.findByIdAndDelete(judge.userId),
+      RoundOneScore.deleteMany({ judgeId: judge.judgeId }),
+      FinalRoundScore.deleteMany({ judgeId: judge.judgeId }),
+      JudgeNote.deleteMany({ judgeId: judge.judgeId })
+    ]);
+
+    await logAudit({
+      user: req.user,
+      action: 'JUDGE_DELETED',
+      judgeId: judge.judgeId,
+      previousValue: previous
+    });
+    res.json({ message: 'Judge deleted.' });
+  })
+);

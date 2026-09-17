@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { adminOnly, authMiddleware } from '../middleware/auth.js';
+import { authMiddleware } from '../middleware/auth.js';
 import { Judge } from '../models/Judge.js';
 import { User } from '../models/User.js';
 import { logAudit } from '../services/auditService.js';
@@ -67,7 +67,6 @@ authRoutes.get(
 authRoutes.post(
   '/change-password',
   authMiddleware,
-  adminOnly,
   asyncHandler(async (req, res) => {
     const currentPassword = String(req.body.currentPassword || '');
     const newPassword = String(req.body.newPassword || '');
@@ -93,7 +92,10 @@ authRoutes.post(
 
     req.user.passwordHash = await bcrypt.hash(newPassword, 12);
     await req.user.save();
-    await logAudit({ user: req.user, action: 'ADMIN_PASSWORD_CHANGED' });
+    await logAudit({
+      user: req.user,
+      action: req.user.role === 'judge' ? 'JUDGE_PASSWORD_CHANGED' : 'ADMIN_PASSWORD_CHANGED'
+    });
 
     res.json({ message: 'Password changed successfully.' });
   })
